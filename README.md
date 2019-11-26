@@ -141,5 +141,4 @@ Here, parameters of '--output_dir' and '--output_model_file' are the model path 
 respectively. '--output_prediction' means a json file with predictions will be written to the output path.
 
 
-###Still under updating
-Busy on ACL now
+### Still under updating
