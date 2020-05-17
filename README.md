@@ -1,5 +1,5 @@
 # CASe
-Implementation of AAAI2020 paper " Unsupervised Domain Adaptation on Reading Comprehension "
+Implementation of paper [Unsupervised Domain Adaptation on Reading Comprehension](https://arxiv.org/abs/1911.06137)
 
 
 ## Requirements
@@ -19,6 +19,9 @@ Totally 6 datasets are included in this paper:
 4. NewsQA: [CSV file](https://msropendata.com/datasets/939b1042-6402-4697-9c15-7a28de7e1321)
 5. CoQA: [Training set](http://downloads.cs.stanford.edu/nlp/data/coqa/coqa-train-v1.0.json) [Dev set](http://downloads.cs.stanford.edu/nlp/data/coqa/coqa-dev-v1.0.json)
 6. DROP: [The whole dataset](https://s3-us-west-2.amazonaws.com/allennlp/datasets/drop/drop_dataset.zip)
+
+If you use raw SQuAD dataset, please add an attribute 'len' into original json file which indicates the number of samples 
+in current json file, which should be 87599 for train set and 10570 for dev set.
 
 If you want to use our processed datasets, please refer to 
 [processed datasets in SQuAD format](https://drive.google.com/open?id=1UOwXpHaRH-7SmUqM6tNXbJEcQxvI1fVM) and skip step
@@ -140,5 +143,3 @@ It is used to run prediction for a trained/adapted model. An example is given
 Here, parameters of '--output_dir' and '--output_model_file' are the model path and model file name for prediction
 respectively. '--output_prediction' means a json file with predictions will be written to the output path.
 
-
-### Still under updating
