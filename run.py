@@ -440,7 +440,7 @@ RawResult = collections.namedtuple("RawResult",
                                    ["unique_id", "start_logits", "end_logits"])
 
 
-def write_predictions(all_examples, all_features, all_results, n_best_size,
+def write_predictions(args, all_examples, all_features, all_results, n_best_size,
                       max_answer_length, do_lower_case, output_prediction_file,
                       output_nbest_file, verbose_logging, logger, write_json):
     """Write final predictions to the json file."""
@@ -461,7 +461,7 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
 
     all_predictions = collections.OrderedDict()
     all_nbest_json = collections.OrderedDict()
-    all_probs = []
+    all_probs, all_indices = [], []
     for (example_index, example) in enumerate(all_examples):
         features = example_index_to_features[example_index]
         all_probs.append(0)
@@ -508,7 +508,7 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
             reverse=True)
 
         _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-            "NbestPrediction", ["text", "start_logit", "end_logit"])
+            "NbestPrediction", ["text", "start_logit", "end_logit", "start_position", "end_position", "doc_span_index"])
 
         seen_predictions = {}
         nbest = []
@@ -541,13 +541,16 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
                 _NbestPrediction(
                     text=final_text,
                     start_logit=pred.start_logit,
-                    end_logit=pred.end_logit))
+                    end_logit=pred.end_logit,
+                    start_position=pred.start_index,
+                    end_position=pred.end_index,
+                    doc_span_index=feature.doc_span_index))
 
         # In very rare edge cases we could have no valid predictions. So we
         # just create a nonce prediction in this case to avoid failure.
         if not nbest:
             nbest.append(
-                _NbestPrediction(text="empty", start_logit=0.0, end_logit=0.0))
+                _NbestPrediction(text="empty", start_logit=0.0, end_logit=0.0, start_position=-1, end_position=-1, doc_span_index=-1))
 
         assert len(nbest) >= 1
 
@@ -571,6 +574,15 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
         all_predictions[example.qas_id] = nbest_json[0]["text"]
         all_probs[example_index] = probs[0]
         all_nbest_json[example.qas_id] = nbest_json
+        pred_start_pos, pred_end_pos = nbest[0].start_position, nbest[0].end_position
+        pred_doc_span_index = nbest[0].doc_span_index
+        for feature in features:
+            cur_start_pos = pred_start_pos + (pred_doc_span_index - feature.doc_span_index) * args.doc_stride
+            cur_end_pos = pred_end_pos + (pred_doc_span_index - feature.doc_span_index) * args.doc_stride
+            if cur_end_pos in range(args.max_seq_length) and cur_start_pos in range(args.max_seq_length):
+                all_indices.append((cur_start_pos, cur_end_pos))
+            else:
+                all_indices.append((-1, -1))
 
     if write_json:
         with open(output_prediction_file, "w") as writer:
@@ -578,7 +590,7 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
 
         with open(output_nbest_file, "w") as writer:
             writer.write(json.dumps(all_nbest_json, indent=4) + "\n")
-    return all_predictions, all_probs
+    return all_predictions, all_probs, all_indices
 
 
 def get_final_text(pred_text, orig_text, do_lower_case, logger, verbose_logging=False):
@@ -791,15 +803,18 @@ def read_features_and_examples(args, file_name, tokenizer, logger, use_simple_fe
             examples = examples[:limit]
     return features, examples
 
-def keep_high_prob_samples(all_probs, all_features, prob_threshold, removed_feature_index, keep_generated=False):
+def keep_high_prob_samples(all_probs, all_features, prob_threshold, removed_feature_index, all_indices,
+        keep_generated=False):
     new_train_features = []
-    for feature in all_features:
+    for i, feature in enumerate(all_features):
         if keep_generated:
             if feature.example_index not in removed_feature_index and all_probs[feature.example_index] > prob_threshold:
+                feature.start_position, feature.end_position = all_indices[i][0] = all_indices[i][1]
                 new_train_features.append(feature)
                 removed_feature_index.add(feature.example_index)
         else:
             if all_probs[feature.example_index] > prob_threshold:
+                feature.start_position, feature.end_position = all_indices[i][0], all_indices[i][1]
                 new_train_features.append(feature)
     return new_train_features, removed_feature_index
 
@@ -864,12 +879,12 @@ def evaluation_stage(args, eval_examples, eval_features, device, model, logger, 
     else:
         output_prediction_file = os.path.join(args.output_dir, 'predictions.json')
         output_nbest_file = os.path.join(args.output_dir, 'nbest_predictions.json')
-    all_predictions, all_probs = write_predictions(eval_examples, eval_features, all_results,
+    all_predictions, all_probs, all_indices = write_predictions(args, eval_examples, eval_features, all_results,
         args.n_best_size, args.max_answer_length,
         args.do_lower_case, output_prediction_file,
         output_nbest_file, args.verbose_logging, logger, args.output_prediction)
     if generate_label:
-        return keep_high_prob_samples(all_probs, eval_features, generate_prob_th, removed_feature_index,
+        return keep_high_prob_samples(all_probs, eval_features, generate_prob_th, removed_feature_index, all_indices,
                 keep_generated=args.keep_previous_generated)
     else:
         acc, f1 = evaluate_acc_and_f1(all_predictions, eval_examples, logger)
@@ -893,7 +908,6 @@ def generate_self_training_samples(args, train_examples, train_features, device,
     cur_train_features, removed_feature_index = \
         evaluation_stage(args, train_examples, train_features_removed_previous, device, model, logger,
             removed_feature_index=removed_feature_index, generate_label=True, generate_prob_th=generate_prob_th)
-    new_generated_train_features = cur_train_features
     if len(cur_train_features) == 0:
         logger.info("  No new training samples were generated, training procedure ends")
         return None, None
