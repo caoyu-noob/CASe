@@ -1483,7 +1483,7 @@ def training_stage(args, tokenizer, n_gpu, device, logger, debug=False):
 
     # Save the final trained model
     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-    output_model_file = os.path.join(args.output_dir, args.output_model, '.final')
+    output_model_file = os.path.join(args.output_dir, args.output_model_file + '.final')
     if args.do_train:
         torch.save(model_to_save.state_dict(), output_model_file)
     logger.info('The final model has been save')
